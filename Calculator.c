@@ -97,6 +97,7 @@ int cal(int first, int sec, char exec_op){
 
 int eval(char s[]){
     int idx=0;
+    int expecting_char = 1;
     
     while(s[idx]!='\0'){
         
@@ -107,6 +108,12 @@ int eval(char s[]){
         
         if(isdigit(s[idx])){
             int cur_num = 0;
+            
+            if(expecting_char != 1){
+                printf("Error : Invalid expression.");
+                exit(EXIT_FAILURE);
+            }
+            expecting_char = 0;
             
             while(isdigit(s[idx])){
                 cur_num = cur_num*10 + s[idx]-'0';
@@ -119,10 +126,20 @@ int eval(char s[]){
         if(s[idx] == '+' || s[idx] == '-' || s[idx] == '*' || s[idx] == '/'){
             char cur_op = s[idx];
             
+            if(expecting_char != 0){
+                printf("Error : Invalid expression.");
+                exit(EXIT_FAILURE);
+            }
+            expecting_char = 1;
+            
             while(op_top!=-1  && precedence(peek_op()) >= precedence(cur_op)){
+                if(num_top < 1){
+                    printf("Error: Invalid expression.\n");
+                    exit(EXIT_FAILURE);
+                }
                 char exec_op = pop_op();
-                int first_num = pop_num();
                 int sec_num = pop_num();
+                int first_num = pop_num();
                 int temp = cal(first_num, sec_num, exec_op);
                 push_num(temp);
             }
@@ -136,7 +153,15 @@ int eval(char s[]){
         exit(EXIT_FAILURE);
         
     }
+    if(expecting_char){
+        printf("Error: Invalid expression");
+        exit(EXIT_FAILURE);
+    }
     while(op_top!=-1){
+        if(num_top < 1){
+            printf("Error: Invalid expression.\n");
+            exit(EXIT_FAILURE);
+        }
         char exec_op = pop_op();
         int sec_num = pop_num();
         int first_num = pop_num();
@@ -150,25 +175,11 @@ int eval(char s[]){
 int main(void)
 {
     char s[50];
+  
     printf("Enter Your Expression: ");
     fgets(s, sizeof(s), stdin);
+    
     s[strcspn(s, "\n")] = '\0';
-    
-    int i=0;
-    while(i<strlen(s) && isspace(s[i])){
-        i++;
-    }
-    if(s[i] == '\0'){
-        printf("Empty String");
-        return 0;
-    }
-     if(s[strlen(s) -1] == '+' || s[strlen(s) -1] == '-' || s[strlen(s) -1] == '*' || s[strlen(s) -1] == '/' || 
-     s[0] == '+' || s[0] == '-' || s[0] == '*' || s[0] == '/' ){
-        printf("Invalid expression");
-        return 0;
-         
-     }
-    
     
     printf("Result = %d", eval(s));
     return 0;
