@@ -78,7 +78,7 @@ int cal(int first, int sec, char exec_op){
             break;
         case '/':
             if(sec == 0){
-                printf("Error: Divide by zero");
+                printf("Error: Division by zero.");
                 exit(EXIT_FAILURE);
             }
             res=first/sec;
@@ -110,7 +110,7 @@ int eval(char s[]){
             int cur_num = 0;
             
             if(expecting_char != 1){
-                printf("Error : Invalid expression.");
+                printf("Error: Invalid expression.");
                 exit(EXIT_FAILURE);
             }
             expecting_char = 0;
@@ -127,14 +127,14 @@ int eval(char s[]){
             char cur_op = s[idx];
             
             if(expecting_char != 0){
-                printf("Error : Invalid expression.");
+                printf("Error: Invalid expression.");
                 exit(EXIT_FAILURE);
             }
             expecting_char = 1;
             
             while(op_top!=-1  && precedence(peek_op()) >= precedence(cur_op)){
                 if(num_top < 1){
-                    printf("Error: Invalid expression.\n");
+                    printf("Error: Invalid expression.");
                     exit(EXIT_FAILURE);
                 }
                 char exec_op = pop_op();
@@ -149,17 +149,17 @@ int eval(char s[]){
             continue;
             
         }
-        printf("Invalid char found: expression invalid");
+        printf("Error: Invalid expression.");
         exit(EXIT_FAILURE);
         
     }
     if(expecting_char){
-        printf("Error: Invalid expression");
+        printf("Error: Invalid expression.");
         exit(EXIT_FAILURE);
     }
     while(op_top!=-1){
         if(num_top < 1){
-            printf("Error: Invalid expression.\n");
+            printf("Error: Invalid expression.");
             exit(EXIT_FAILURE);
         }
         char exec_op = pop_op();
@@ -177,10 +177,14 @@ int main(void)
     char s[50];
   
     printf("Enter Your Expression: ");
-    fgets(s, sizeof(s), stdin);
     
+    if(fgets(s, sizeof(s), stdin) == NULL){
+        printf("Error: Invalid expression.");
+        exit(EXIT_FAILURE);
+    }
+        
     s[strcspn(s, "\n")] = '\0';
     
-    printf("Result = %d", eval(s));
+    printf("%d", eval(s));
     return 0;
 }
