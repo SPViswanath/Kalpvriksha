@@ -15,7 +15,7 @@ int valid_ticket_count(int *ticket_count){
         if(*ticket_count>=1 && *ticket_count<=20)
             return 1;
             
-        printf("Error: Enter Invalid ticket_count.");
+        printf("Error: Enter Invalid ticket_count.\n");
     } 
 }
 
@@ -124,9 +124,6 @@ int main()
             ticket_price = RECLINER;
             strcpy(ticket_category, "Recliner");
             break;
-        default:
-            printf("Error: Invalid Category.");
-            return 1;
     }
     
     float subtotal =ticket_price * ticket_count;
@@ -144,8 +141,6 @@ int main()
     
     printf("Discount: %.2f\n", discount);
     printf("Final Bill: %.2f\n", subtotal-discount);
-    
-    
     
     return 0;
 }
