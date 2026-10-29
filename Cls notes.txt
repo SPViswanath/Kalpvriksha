@@ -1,0 +1,86 @@
+https://github.com/SPViswanath/Kalpvriksha/pull/1
+
+https://github.com/SPViswanath/Kalpvriksha/pull/2
+
+
+group-b
+variables and rules of variables
+constants
+
+
+12/10/26
+
+group - b
+
+float vs double (range)
+examples
+Q: what is the range of float
+
+_Bool vs _complex
+
+user-defined datatype
+struct, union, Enum + typedef
+
+Q: In union how the data is stored 
+Q: How data is stored in floating point format for float datatypes: the particular format for storing the float datatype.. a separate binary format..
+
+
+Next -> Type conversion and casting
+
+Next -> Why do we need I/O?
+	formatted and unformatted I/O
+
+Next-> Character Arrays and String
+
+scanf & printf in detail
+
+15/10/26
+
+Starting with group b for 1st 30min 
+
+Topic: Operators - Arithmetic, Relational, Logical, Bitwise, Assignment, Misc
+
+Misc operator - sizeof, ?:, & * ,-> (type) 
+
+unary operators
+
+Next->Control flow
+
+switch case - float datatype is not usable if done throws compilation error
+only acceptable datatypes - int, char, Enum in c for switch cases
+
+switch case - jump table 
+
+**Can we force the exact sizes in the structure to avoid padding**
+
+19/10/26
+
+goto statement , Labelled statement...
+why not to use them excessively...
+
+
+next-> functions
+call stack
+return address
+saved frame pointer
+
+Thursday - 22/10/26
+
+Pointers
+-->self-referential data structures
+
+--> function pointers and structs
+
+int *p = arr;
+int a = *(p+1); // p+1 moves by sizeof(*p)
+
+what is null pointer?
+
+types of pointer
+1.wild
+2.pointer to pointer
+3.void
+
+pointer vs Arrays
+
+doubt: sizeof struct pointer and struct. how we allocate space -->struct Student *s = malloc(sizeof *s);
