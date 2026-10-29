@@ -2,34 +2,41 @@
 #include <stdlib.h>
 #include <time.h>
 
-void generate_matrix(int size, int (*matrix)[size] ){
+void generate_matrix(int size, int **matrix ){
     for(int i=0;i<size;i++)
         for(int j=0;j<size;j++)
-            *(*(matrix+i)+j) = rand() %256;
-
+           *(*(matrix+i)+j) = rand() %256;
 }
 
-void rotate_matrix(int size, int (*matrix)[size] ){
+void rotate_matrix(int size, int **matrix ){
     
-    int temp=0;
     for(int i=0;i<size;i++){
         for(int j=i+1;j<size;j++){
-            temp = *(*(matrix+i)+j);
-            *(*(matrix+i)+j) = *(*(matrix+j)+i);
-            *(*(matrix+j)+i) = temp;
+            int *address1 = *(matrix+i)+j;
+            int *address2 = *(matrix+j)+i;
+            
+            int temp = *address1;
+            *address1 = *address2;
+            *address2 = temp;
+            
         }
     }
     
     for(int i=0;i<size;i++){
         for(int j=0;j<size/2;j++){
-            temp = *(*(matrix+i)+j);
-            *(*(matrix+i)+j) = *(*(matrix+i)+(size-1-j));
-            *(*(matrix+i)+(size-1-j)) = temp;
+            int *address1 = *(matrix+i)+j;
+            int *address2 = *(matrix+i)+(size-1-j);
+            
+            int temp = *address1;
+            *address1 = *address2;
+            *address2 = temp;
+            
         }
     }
 }
 
-void apply_smoothing_filter(int size, int (*matrix)[size] ){
+
+void apply_smoothing_filter(int size, int **matrix ){
     int current_row[size], previous_row[size];
     
     for(int row=0;row<size;row++){
@@ -67,7 +74,7 @@ void apply_smoothing_filter(int size, int (*matrix)[size] ){
     }
 }
 
-void print_matrix(int size, int (*matrix)[size] ){
+void print_matrix(int size, int **matrix ){
     for(int i=0;i<size;i++){
         for(int j=0;j<size;j++){
             printf("%d ", *(*(matrix+i)+j));
@@ -76,6 +83,16 @@ void print_matrix(int size, int (*matrix)[size] ){
     }
 }
 
+void freeAll(int **matrix, int size){
+    if(matrix == NULL){
+        return;
+    }
+    
+    for(int i=0;i<size;i++){
+        free(*(matrix+i));
+    }
+    free(matrix);
+}
 int main(){
     srand((unsigned)time(NULL));
     int size;
@@ -98,8 +115,16 @@ int main(){
         
     }
     
-    
-    int matrix[size][size] ;
+    int **matrix = malloc(size * sizeof(*matrix));
+    // int matrix[size][size] ;
+    for(int i=0;i<size;i++){
+        *(matrix+i)= malloc(size * sizeof(int));
+        if((*matrix+i) == NULL){
+            freeAll(matrix, size)
+            printf("Memory Allocation failed!");
+            return 1;
+        }
+    }
     generate_matrix(size, matrix);
     
     
@@ -115,5 +140,6 @@ int main(){
     printf("Matrix after Applying 3×3 Smoothing Filter:\n");
     print_matrix(size, matrix);
     
+    freeAll(matrix, size);
     return 0;
 }
