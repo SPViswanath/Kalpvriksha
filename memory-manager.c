@@ -1,496 +1,407 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-enum { FREE_B, USED_B };
+enum { FREE_BLOCK, USED_BLOCK };
+enum { FIRST_FIT = 1, BEST_FIT, WORST_FIT };
 
 typedef struct {
-    size_t offset, size;
-    int id, status;
+    size_t start_offset;
+    size_t block_size;
+    int allocation_id;
+    int status;
 } Block;
 
-enum { FIRST_FIT = 1, BEST_FIT = 2, WORST_FIT = 3 };
+typedef struct {
+    unsigned char *pool;
+    size_t pool_size;
+    Block *blocks;
+    size_t block_count;
+    size_t block_capacity;
+    int next_allocation_id;
+    int strategy;
+} MemoryManager;
 
-static unsigned char *memory_pool = NULL;
-static size_t pool_size = 0;
-static Block *blocks = NULL;
-static size_t block_count = 0, block_capacity = 8;
-static int next_allocation_id = 1, allocation_strategy = FIRST_FIT;
-
-static int read_num(const char *prompt, long *input_value)
+static int read_number(const char *prompt, long *value)
 {
     printf("%s", prompt);
 
-    while (scanf("%ld", input_value) != 1) {
-        if (feof(stdin))
-            return -1;
-
+    while (scanf("%ld", value) != 1) {
+        if (feof(stdin)) return -1;
         scanf("%*[^\n]");
         printf("Invalid input. %s", prompt);
     }
+
     return 0;
 }
 
-static int init_pool(long requested_size)
+static int init_pool(MemoryManager *manager, long requested_pool_size)
 {
-    if (requested_size < 1 || requested_size > 1000000) {
+    if (requested_pool_size < 1 || requested_pool_size > 1000000) {
         printf("Pool size must be 1 to 1000000.\n");
         return -1;
     }
-    memory_pool = malloc(requested_size);
-    blocks = malloc(block_capacity * sizeof(Block));
 
-    if (!memory_pool || !blocks) {
-        free(memory_pool);
-        free(blocks);
+    manager->pool = malloc(requested_pool_size);
+    manager->blocks = malloc(8 * sizeof(Block));
+
+    if (manager->pool == NULL || manager->blocks == NULL) {
+        free(manager->pool);
+        free(manager->blocks);
         printf("Memory allocation failed.\n");
         return -1;
     }
-    pool_size = requested_size;
-    block_count = 1;
-    block_capacity = 8;
-    next_allocation_id = 1;
 
-    blocks[0] = (Block){0, (size_t)requested_size, 0, FREE_B};
+    manager->pool_size = requested_pool_size;
+    manager->block_count = 1;
+    manager->block_capacity = 8;
+    manager->next_allocation_id = 1;
+    manager->blocks[0] = (Block){0, (size_t)requested_pool_size, 0, FREE_BLOCK};
 
     return 0;
 }
 
-static int insert_block(size_t block_index, Block new_block)
+static int insert_block(MemoryManager *manager, size_t position, Block new_block)
 {
-    if (block_count == block_capacity) {
-        Block *resized_blocks = realloc(
-            blocks, block_capacity * 2 * sizeof(Block)
-        );
+    if (manager->block_count == manager->block_capacity) {
+        Block *grown_blocks = realloc(manager->blocks, manager->block_capacity * 2 * sizeof(Block));
 
-        if (!resized_blocks)
-            return -1;  /* old array still valid */
+        if (grown_blocks == NULL) return -1;
 
-        blocks = resized_blocks;
-        block_capacity *= 2;
+        manager->blocks = grown_blocks;
+        manager->block_capacity *= 2;
     }
 
-    memmove(
-        &blocks[block_index + 1],
-        &blocks[block_index],
-        (block_count - block_index) * sizeof(Block)
-    );
-
-    blocks[block_index] = new_block;
-    block_count++;
+    memmove(&manager->blocks[position + 1], &manager->blocks[position], (manager->block_count - position) * sizeof(Block));
+    manager->blocks[position] = new_block;
+    manager->block_count++;
 
     return 0;
 }
 
-static void remove_block(size_t block_index)
+static void remove_block(MemoryManager *manager, size_t position)
 {
-    memmove(&blocks[block_index], &blocks[block_index + 1],(block_count - block_index - 1) * sizeof(Block));
-
-    block_count--;
+    memmove(&manager->blocks[position], &manager->blocks[position + 1], (manager->block_count - position - 1) * sizeof(Block));
+    manager->block_count--;
 }
 
-static int find_block(long allocation_id)
+static int find_block_by_id(MemoryManager *manager, long allocation_id)
 {
-    for (size_t block_index = 0; block_index < block_count; block_index++) {
-        if (blocks[block_index].status == USED_B &&
-            blocks[block_index].id == allocation_id)
-            return (int)block_index;
+    for (size_t index = 0; index < manager->block_count; index++) {
+        if (manager->blocks[index].status == USED_BLOCK && manager->blocks[index].allocation_id == allocation_id)
+            return (int)index;
     }
 
     return -1;
 }
 
-/* ---- allocation strategies: return block index or -1 ---- */
-
-static int first_fit(size_t requested_size)
+static int first_fit(MemoryManager *manager, size_t request_size)
 {
-    for (size_t block_index = 0; block_index < block_count; block_index++) {
-        if (blocks[block_index].status == FREE_B &&
-            blocks[block_index].size >= requested_size)
-            return (int)block_index;
+    for (size_t index = 0; index < manager->block_count; index++) {
+        if (manager->blocks[index].status == FREE_BLOCK && manager->blocks[index].block_size >= request_size)
+            return (int)index;
     }
 
     return -1;
 }
 
-static int best_fit(size_t requested_size)
+static int best_fit(MemoryManager *manager, size_t request_size)
 {
     int best_index = -1;
 
-    for (size_t block_index = 0; block_index < block_count; block_index++) {
-        if (blocks[block_index].status == FREE_B &&
-            blocks[block_index].size >= requested_size &&
-            (best_index < 0 ||
-             blocks[block_index].size < blocks[best_index].size))
-            best_index = (int)block_index;
+    for (size_t index = 0; index < manager->block_count; index++) {
+        if (manager->blocks[index].status == FREE_BLOCK && manager->blocks[index].block_size >= request_size &&
+            (best_index < 0 || manager->blocks[index].block_size < manager->blocks[best_index].block_size))
+            best_index = (int)index;
     }
 
     return best_index;
 }
 
-static int worst_fit(size_t requested_size)
+static int worst_fit(MemoryManager *manager, size_t request_size)
 {
     int worst_index = -1;
 
-    for (size_t block_index = 0; block_index < block_count; block_index++) {
-        if (blocks[block_index].status == FREE_B &&
-            blocks[block_index].size >= requested_size &&
-            (worst_index < 0 ||
-             blocks[block_index].size > blocks[worst_index].size))
-            worst_index = (int)block_index;
+    for (size_t index = 0; index < manager->block_count; index++) {
+        if (manager->blocks[index].status == FREE_BLOCK && manager->blocks[index].block_size >= request_size &&
+            (worst_index < 0 || manager->blocks[index].block_size > manager->blocks[worst_index].block_size))
+            worst_index = (int)index;
     }
 
     return worst_index;
 }
 
-static int find_free(size_t requested_size)
+static int find_free_block(MemoryManager *manager, size_t request_size)
 {
-    return allocation_strategy == 2 ? best_fit(requested_size) :
-           allocation_strategy == 3 ? worst_fit(requested_size) :
-           first_fit(requested_size);
+    if (manager->strategy == BEST_FIT) return best_fit(manager, request_size);
+    if (manager->strategy == WORST_FIT) return worst_fit(manager, request_size);
+
+    return first_fit(manager, request_size);
 }
 
-/* Shrink block i to `size`; leftover becomes a free block after it.
-   Inserts first, so on failure nothing has changed. */
-
-static int split(size_t block_index, size_t requested_size)
+static int split_block(MemoryManager *manager, size_t block_index, size_t wanted_size)
 {
-    if (blocks[block_index].size > requested_size) {
-        Block remaining_block = {
-            blocks[block_index].offset + requested_size,
-            blocks[block_index].size - requested_size,
+    if (manager->blocks[block_index].block_size > wanted_size) {
+        Block leftover = {
+            manager->blocks[block_index].start_offset + wanted_size,
+            manager->blocks[block_index].block_size - wanted_size,
             0,
-            FREE_B
+            FREE_BLOCK
         };
 
-        if (insert_block(block_index + 1, remaining_block) != 0)
-            return -1;
+        if (insert_block(manager, block_index + 1, leftover) != 0) return -1;
     }
 
-    blocks[block_index].size = requested_size;
+    manager->blocks[block_index].block_size = wanted_size;
 
     return 0;
 }
 
-static void merge_free_blocks(void)
+static void merge_free_blocks(MemoryManager *manager)
 {
-    for (size_t block_index = 0; block_index + 1 < block_count;) {
-        if (blocks[block_index].status == FREE_B &&
-            blocks[block_index + 1].status == FREE_B) {
-            blocks[block_index].size += blocks[block_index + 1].size;
-            remove_block(block_index + 1);
+    size_t index = 0;
+
+    while (index + 1 < manager->block_count) {
+        if (manager->blocks[index].status == FREE_BLOCK && manager->blocks[index + 1].status == FREE_BLOCK) {
+            manager->blocks[index].block_size += manager->blocks[index + 1].block_size;
+            remove_block(manager, index + 1);
         } else {
-            block_index++;
+            index++;
         }
     }
 }
 
-static size_t total_free(void)
+static size_t total_free_bytes(MemoryManager *manager)
 {
     size_t free_bytes = 0;
 
-    for (size_t block_index = 0; block_index < block_count; block_index++) {
-        if (blocks[block_index].status == FREE_B)
-            free_bytes += blocks[block_index].size;
+    for (size_t index = 0; index < manager->block_count; index++) {
+        if (manager->blocks[index].status == FREE_BLOCK)
+            free_bytes += manager->blocks[index].block_size;
     }
 
     return free_bytes;
 }
 
-static void report_failure(size_t requested_size)
+static void report_failure(MemoryManager *manager, size_t request_size)
 {
-    size_t free_bytes = total_free();
+    size_t free_bytes = total_free_bytes(manager);
 
-    printf(
-        "Failed: no contiguous free block is large enough for %zu bytes.\n",
-        requested_size
-    );
+    printf("Failed: no contiguous free block is large enough for %zu bytes.\n", request_size);
 
-    if (free_bytes >= requested_size) {
-        printf(
-            "External fragmentation: %zu bytes are free in total, but only as separate blocks:",
-            free_bytes
-        );
+    if (free_bytes >= request_size) {
+        printf("External fragmentation: %zu bytes are free in total, but only as separate blocks:", free_bytes);
 
-        for (size_t block_index = 0; block_index < block_count; block_index++) {
-            if (blocks[block_index].status == FREE_B)
-                printf(" %zu", blocks[block_index].size);
+        for (size_t index = 0; index < manager->block_count; index++) {
+            if (manager->blocks[index].status == FREE_BLOCK)
+                printf(" %zu", manager->blocks[index].block_size);
         }
 
         printf("\n");
     }
 }
 
-static void allocate_memory(void)
+static void allocate_memory(MemoryManager *manager)
 {
     long requested_size;
 
-    if (read_num("Requested size: ", &requested_size))
-        return;
+    if (read_number("Requested size: ", &requested_size)) return;
 
-    if (requested_size <= 0 || (size_t)requested_size > pool_size) {
+    if (requested_size <= 0 || (size_t)requested_size > manager->pool_size) {
         printf("Invalid size.\n");
         return;
     }
 
-    int block_index = find_free(requested_size);
+    int block_index = find_free_block(manager, requested_size);
 
     if (block_index < 0) {
-        report_failure(requested_size);
+        report_failure(manager, requested_size);
         return;
     }
 
-    if (split(block_index, requested_size) != 0) {
+    if (split_block(manager, block_index, requested_size) != 0) {
         printf("Allocation failed: out of metadata memory.\n");
         return;
     }
 
-    blocks[block_index].status = USED_B;
-    blocks[block_index].id = next_allocation_id++;
+    manager->blocks[block_index].status = USED_BLOCK;
+    manager->blocks[block_index].allocation_id = manager->next_allocation_id++;
 
-    printf(
-        "Allocation successful. ID: %d, Start: %zu, Size: %ld\n",
-        blocks[block_index].id,
-        blocks[block_index].offset,
-        requested_size
-    );
+    printf("Allocation successful. ID: %d, Start: %zu, Size: %ld\n",
+           manager->blocks[block_index].allocation_id, manager->blocks[block_index].start_offset, requested_size);
 }
 
-static void release_memory(void)
+static void release_memory(MemoryManager *manager)
 {
     long allocation_id;
 
-    if (read_num("Allocation ID: ", &allocation_id))
-        return;
+    if (read_number("Allocation ID: ", &allocation_id)) return;
 
-    int block_index = find_block(allocation_id);
+    int block_index = find_block_by_id(manager, allocation_id);
 
     if (block_index < 0) {
         printf("Unknown ID or block already free.\n");
         return;
     }
 
-    blocks[block_index].status = FREE_B;
-    blocks[block_index].id = 0;
-
-    merge_free_blocks();
+    manager->blocks[block_index].status = FREE_BLOCK;
+    manager->blocks[block_index].allocation_id = 0;
+    merge_free_blocks(manager);
 
     printf("Allocation released.\n");
 }
 
-static void resize_allocation(void)
+static void resize_allocation(MemoryManager *manager)
 {
     long allocation_id, requested_size;
 
-    if (read_num("Allocation ID: ", &allocation_id) ||
-        read_num("New size: ", &requested_size))
-        return;
+    if (read_number("Allocation ID: ", &allocation_id) || read_number("New size: ", &requested_size)) return;
 
-    int block_index = find_block(allocation_id);
+    int block_index = find_block_by_id(manager, allocation_id);
 
     if (block_index < 0) {
         printf("Unknown ID or block already free.\n");
         return;
     }
 
-    if (requested_size <= 0 || (size_t)requested_size > pool_size) {
+    if (requested_size <= 0 || (size_t)requested_size > manager->pool_size) {
         printf("Invalid size.\n");
         return;
     }
 
     size_t new_size = requested_size;
-    size_t old_size = blocks[block_index].size;
+    size_t old_size = manager->blocks[block_index].block_size;
 
-    if (new_size <= old_size) {  /* shrink */
-        if (split(block_index, new_size) != 0) {
+    if (new_size <= old_size) {
+        if (split_block(manager, block_index, new_size) != 0) {
             printf("Resize failed.\n");
             return;
         }
 
-        merge_free_blocks();
-    }
-    else if ((size_t)block_index + 1 < block_count &&
-             blocks[block_index + 1].status == FREE_B &&
-             old_size + blocks[block_index + 1].size >= new_size) {
-        /* grow in place */
+        merge_free_blocks(manager);
+    } else if ((size_t)block_index + 1 < manager->block_count && manager->blocks[block_index + 1].status == FREE_BLOCK &&
+               old_size + manager->blocks[block_index + 1].block_size >= new_size) {
+        size_t extra_bytes = new_size - old_size;
 
-        blocks[block_index + 1].offset += new_size - old_size;
-        blocks[block_index + 1].size -= new_size - old_size;
-        blocks[block_index].size = new_size;
+        manager->blocks[block_index + 1].start_offset += extra_bytes;
+        manager->blocks[block_index + 1].block_size -= extra_bytes;
+        manager->blocks[block_index].block_size = new_size;
 
-        if (blocks[block_index + 1].size == 0)
-            remove_block(block_index + 1);
-    }
-    else {  /* move */
-        int target_index = find_free(new_size);
+        if (manager->blocks[block_index + 1].block_size == 0) remove_block(manager, block_index + 1);
+    } else {
+        int target_index = find_free_block(manager, new_size);
 
-        if (target_index < 0 || split(target_index, new_size) != 0) {
+        if (target_index < 0 || split_block(manager, target_index, new_size) != 0) {
             printf("Resize failed; original allocation unchanged.\n");
-            report_failure(new_size);
+            report_failure(manager, new_size);
             return;
         }
 
-        if (target_index < block_index)
-            block_index++;  /* array shifted by split */
+        if (target_index < block_index) block_index++;
 
-        blocks[target_index].status = USED_B;
-        blocks[target_index].id = (int)allocation_id;
+        manager->blocks[target_index].status = USED_BLOCK;
+        manager->blocks[target_index].allocation_id = (int)allocation_id;
 
-        memcpy(
-            memory_pool + blocks[target_index].offset,
-            memory_pool + blocks[block_index].offset,
-            old_size
-        );
+        memcpy(manager->pool + manager->blocks[target_index].start_offset, manager->pool + manager->blocks[block_index].start_offset, old_size);
 
-        blocks[block_index].status = FREE_B;
-        blocks[block_index].id = 0;
-
-        merge_free_blocks();
+        manager->blocks[block_index].status = FREE_BLOCK;
+        manager->blocks[block_index].allocation_id = 0;
+        merge_free_blocks(manager);
     }
 
     printf("Resize successful.\n");
 }
 
-static void display_memory_map(void)
+static void display_memory_map(MemoryManager *manager)
 {
-    printf("Memory Map (%zu bytes):\n", pool_size);
+    printf("Memory Map (%zu bytes):\n", manager->pool_size);
 
-    for (size_t block_index = 0; block_index < block_count; block_index++) {
-        Block *block = &blocks[block_index];
+    for (size_t index = 0; index < manager->block_count; index++) {
+        Block *block = &manager->blocks[index];
 
-        if (block->status == USED_B)
-            printf(
-                "[Allocated #%d: %zu bytes, Start: %zu]\n",
-                block->id, block->size, block->offset
-            );
+        if (block->status == USED_BLOCK)
+            printf("[Allocated #%d: %zu bytes, Start: %zu]\n", block->allocation_id, block->block_size, block->start_offset);
         else
-            printf(
-                "[Free: %zu bytes, Start: %zu]\n",
-                block->size, block->offset
-            );
+            printf("[Free: %zu bytes, Start: %zu]\n", block->block_size, block->start_offset);
     }
 }
 
-static void display_statistics(void)
+static void display_statistics(MemoryManager *manager)
 {
-    size_t free_blocks = 0;
-    size_t used_blocks = 0;
-    size_t largest_free_block = 0;
+    size_t allocated_blocks = 0, free_blocks = 0, largest_free_block = 0;
 
-    for (size_t block_index = 0; block_index < block_count; block_index++) {
-        Block *block = &blocks[block_index];
+    for (size_t index = 0; index < manager->block_count; index++) {
+        Block *block = &manager->blocks[index];
 
-        if (block->status == USED_B)
-            used_blocks++;
-        else {
+        if (block->status == USED_BLOCK) {
+            allocated_blocks++;
+        } else {
             free_blocks++;
-
-            if (block->size > largest_free_block)
-                largest_free_block = block->size;
+            if (block->block_size > largest_free_block) largest_free_block = block->block_size;
         }
     }
 
-    size_t free_bytes = total_free();
+    size_t free_bytes = total_free_bytes(manager);
 
-    printf(
-        "Total memory: %zu bytes\nAllocated: %zu bytes\nFree: %zu bytes\n",
-        pool_size, pool_size - free_bytes, free_bytes
-    );
-
-    printf(
-        "Allocated blocks: %zu\nFree blocks: %zu\nLargest free block: %zu bytes\n",
-        used_blocks, free_blocks, largest_free_block
-    );
+    printf("Total memory: %zu bytes\n", manager->pool_size);
+    printf("Allocated: %zu bytes\n", manager->pool_size - free_bytes);
+    printf("Free: %zu bytes\n", free_bytes);
+    printf("Allocated blocks: %zu\n", allocated_blocks);
+    printf("Free blocks: %zu\n", free_blocks);
+    printf("Largest free block: %zu bytes\n", largest_free_block);
 }
 
-static int choose_strategy(void)
+static int choose_strategy(MemoryManager *manager)
 {
     long strategy_choice;
 
     do {
-        if (read_num(
-                "Select allocation strategy (1. First Fit, 2. Best Fit, 3. Worst Fit): ",
-                &strategy_choice
-            ))
+        if (read_number("Select allocation strategy (1. First Fit, 2. Best Fit, 3. Worst Fit): ", &strategy_choice))
             return -1;
+    } while (strategy_choice < FIRST_FIT || strategy_choice > WORST_FIT);
 
-    } while (strategy_choice < 1 || strategy_choice > 3);
+    manager->strategy = (int)strategy_choice;
 
-    allocation_strategy = (int)strategy_choice;
-
-    printf(
-        "Strategy set to %s Fit.\n",
-        strategy_choice == 1 ? "First" :
-        strategy_choice == 2 ? "Best" : "Worst"
-    );
+    printf("Strategy set to %s Fit.\n",
+           strategy_choice == FIRST_FIT ? "First" : strategy_choice == BEST_FIT ? "Best" : "Worst");
 
     return 0;
 }
 
 int main(void)
 {
-    long requested_size, menu_choice = 0;
+    MemoryManager manager;
+    long pool_size_input, menu_choice = 0;
 
     do {
-        if (read_num("Enter memory pool size: ", &requested_size))
-            return 1;
-    } while (init_pool(requested_size) != 0);
+        if (read_number("Enter memory pool size: ", &pool_size_input))
+             return 1;
+    } 
+    while (init_pool(&manager, pool_size_input) != 0);
 
-    if (choose_strategy())
-        return 1;
+    if (choose_strategy(&manager)) return 1;
 
     while (menu_choice != 7) {
-        printf(
-            "\nMenu:\n"
-            "1. Allocate memory\n"
-            "2. Release memory\n"
-            "3. Resize allocation\n"
-            "4. Display memory map\n"
-            "5. Display memory statistics\n"
-            "6. Change allocation strategy\n"
-            "7. Exit\n"
-        );
+        printf("\nMenu:\n1. Allocate memory\n2. Release memory\n3. Resize allocation\n"
+               "4. Display memory map\n5. Display memory statistics\n"
+               "6. Change allocation strategy\n7. Exit\n");
 
-        if (read_num("Choice: ", &menu_choice))
-            break;
+        if (read_number("Choice: ", &menu_choice)) break;
 
         switch (menu_choice) {
-            case 1:
-                allocate_memory();
-                break;
-
-            case 2:
-                release_memory();
-                break;
-
-            case 3:
-                resize_allocation();
-                break;
-
-            case 4:
-                display_memory_map();
-                break;
-
-            case 5:
-                display_statistics();
-                break;
-
-            case 6:
-                if (choose_strategy())
-                    menu_choice = 7;
-                break;
-
-            case 7:
-                break;
-
-            default:
-                printf("Invalid choice.\n");
+            case 1: allocate_memory(&manager); break;
+            case 2: release_memory(&manager); break;
+            case 3: resize_allocation(&manager); break;
+            case 4: display_memory_map(&manager); break;
+            case 5: display_statistics(&manager); break;
+            case 6: if (choose_strategy(&manager)) menu_choice = 7; break;
+            case 7: break;
+            default: printf("Invalid choice.\n");
         }
     }
 
-    free(memory_pool);
-    free(blocks);
+    free(manager.pool);
+    free(manager.blocks);
 
     return 0;
 }
