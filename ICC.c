@@ -9,7 +9,7 @@
 #define MAX_TEAM_PLAYERS 50
 #define MIN_ID           1
 #define MAX_ID           1000
-#define INPUT_BUFFER_LEN 128
+#define MAX_LINE         256
 
 typedef enum PlayerRole{
     BATSMAN = 1,
@@ -239,77 +239,67 @@ int player_id_exists(int player_id){
     return 0;
 }
 
-void trim_whitespace(char *text){
-    size_t length = strlen(text);
-    while(length > 0 && isspace((unsigned char)text[length - 1])){
-        text[--length] = '\0';
-    }
-    size_t start = 0;
-    while(text[start] != '\0' && isspace((unsigned char)text[start])){
-        start++;
-    }
-    if(start > 0){
-        memmove(text, text + start, strlen(text + start) + 1);
-    }
+void clear_input(void){
+    int ch;
+    while((ch = getchar()) != '\n' && ch != EOF)
+        ;
 }
 
-int read_line(char *buffer, size_t size){
-    if(fgets(buffer, (int)size, stdin) == NULL)
-        return 0;
-    if(strchr(buffer, '\n') == NULL){
-        int ch;
-        while((ch = getchar()) != '\n' && ch != EOF)
-            ;
+void read_integer(int *value){
+    int number;
+    int status;
+    while((status = scanf(" %d", &number)) != 1 || number < 0){
+        if(status == EOF){
+            freeAll();
+            exit(0);
+        }
+        printf("Enter a valid integer (it should not be negative): ");
+        clear_input();
     }
-    return 1;
+    clear_input();
+    *value = number;
 }
 
-int read_int(const char *prompt, int min, int max, int *value){
-    char buffer[INPUT_BUFFER_LEN];
-    char *end;
-    printf("%s", prompt);
-    if(!read_line(buffer, sizeof(buffer)))
-        return 0;
-    long parsed = strtol(buffer, &end, 10);
-    while(isspace((unsigned char)*end))
-        end++;
-    if(end == buffer || *end != '\0' || parsed < min || parsed > max){
-        printf("Invalid input (expected integer %d-%d).\n", min, max);
-        return 0;
+void read_float(float *value){
+    float number;
+    int status;
+    while((status = scanf(" %f", &number)) != 1 || number < 0){
+        if(status == EOF){
+            freeAll();
+            exit(0);
+        }
+        printf("Enter a valid non-negative number: ");
+        clear_input();
     }
-    *value = (int)parsed;
-    return 1;
+    clear_input();
+    *value = number;
 }
 
-int read_float(const char *prompt, float min, float max, float *value){
-    char buffer[INPUT_BUFFER_LEN];
-    char *end;
-    printf("%s", prompt);
-    if(!read_line(buffer, sizeof(buffer)))
-        return 0;
-    double parsed = strtod(buffer, &end);
-    while(isspace((unsigned char)*end))
-        end++;
-    if(end == buffer || *end != '\0' || parsed < min || parsed > max){
-        printf("Invalid input (expected number %.0f-%.0f).\n", min, max);
-        return 0;
+int is_valid_name(const char *name){
+    for(int index = 0; name[index] != '\0'; index++){
+        char ch = name[index];
+        if(!isalpha((unsigned char)ch) && ch != ' ' && ch != '-' && ch != '.')
+            return 0;
     }
-    *value = (float)parsed;
     return 1;
 }
 
 int read_role(PlayerRole *role){
     int choice;
-    if(!read_int("Enter Role (1-Batsman, 2-Bowler, 3-All-rounder): ", 1, 3, &choice))
+    printf("Enter Role (1-Batsman, 2-Bowler, 3-All-rounder): ");
+    read_integer(&choice);
+    if(choice < BATSMAN || choice > ALL_ROUNDER){
+        printf("Invalid role.\n");
         return 0;
+    }
     *role = (PlayerRole)choice;
     return 1;
 }
 
 int read_team(Team **team){
     int team_id;
-    if(!read_int("Enter Team ID: ", MIN_ID, MAX_ID, &team_id))
-        return 0;
+    printf("Enter Team ID: ");
+    read_integer(&team_id);
     *team = find_team_by_id(team_id);
     if(*team == NULL){
         printf("Team with ID %d not found.\n", team_id);
@@ -355,49 +345,79 @@ void print_player(const Player_Record *player, int show_team){
 }
 
 void add_player(){
-    Team *playerteam;
+    Team *playerteam = NULL;
     int id, role, runs, wickets;
     float average, strike_rate, economy;
-    char name[INPUT_BUFFER_LEN];
+    char name[MAX_LINE];
 
-    if(!read_team(&playerteam))
-        return;
+    while(1){
+        printf("Enter Team ID to add player: ");
+        read_integer(&id);
+        playerteam = find_team_by_id(id);
+        if(playerteam != NULL)
+            break;
+        printf("Team ID does not exist.\n");
+    }
     if(playerteam->TotalPlayers >= MAX_TEAM_PLAYERS){
         printf("Team %s already has the maximum of %d players.\n",
                playerteam->TeamName, MAX_TEAM_PLAYERS);
         return;
     }
 
-    printf("Enter Player Details:\n");
-    if(!read_int("Player ID: ", MIN_ID, MAX_ID, &id))
-        return;
-    if(player_id_exists(id)){
-        printf("Player ID %d already exists.\n", id);
-        return;
+    printf("\nEnter Player Details:\n");
+
+    while(1){
+        printf("Player ID: ");
+        read_integer(&id);
+        if(id < MIN_ID || id > MAX_ID){
+            printf("Player ID must be between %d and %d.\n", MIN_ID, MAX_ID);
+            continue;
+        }
+        if(player_id_exists(id)){
+            printf("Player ID already exists.\n");
+            continue;
+        }
+        break;
     }
 
-    printf("Name: ");
-    if(!read_line(name, sizeof(name)))
-        return;
-    trim_whitespace(name);
-    size_t namelen = strlen(name);
-    if(namelen < 1 || namelen > MAX_NAME_LEN){
-        printf("Invalid name (length must be 1-%d).\n", MAX_NAME_LEN);
-        return;
+    while(1){
+        printf("Name: ");
+        if(fgets(name, sizeof(name), stdin) == NULL){
+            freeAll();
+            exit(0);
+        }
+        if(strchr(name, '\n') == NULL)
+            clear_input();
+        name[strcspn(name, "\n")] = '\0';
+        if(strlen(name) == 0 || strlen(name) > MAX_NAME_LEN){
+            printf("Name must be 1-%d characters long.\n", MAX_NAME_LEN);
+            continue;
+        }
+        if(!is_valid_name(name)){
+            printf("Name can contain only letters, spaces, '-' and '.'.\n");
+            continue;
+        }
+        break;
     }
 
-    if(!read_int("Role (1-Batsman, 2-Bowler, 3-All-rounder): ", 1, 3, &role))
-        return;
-    if(!read_int("Total Runs: ", 0, 1000000, &runs))
-        return;
-    if(!read_float("Batting Average: ", 0, 1000, &average))
-        return;
-    if(!read_float("Strike Rate: ", 0, 1000, &strike_rate))
-        return;
-    if(!read_int("Wickets: ", 0, 10000, &wickets))
-        return;
-    if(!read_float("Economy Rate: ", 0, 100, &economy))
-        return;
+    while(1){
+        printf("Role (1-Batsman, 2-Bowler, 3-All-rounder): ");
+        read_integer(&role);
+        if(role >= BATSMAN && role <= ALL_ROUNDER)
+            break;
+        printf("Invalid role.\n");
+    }
+
+    printf("Total Runs: ");
+    read_integer(&runs);
+    printf("Batting Average: ");
+    read_float(&average);
+    printf("Strike Rate: ");
+    read_float(&strike_rate);
+    printf("Wickets: ");
+    read_integer(&wickets);
+    printf("Economy Rate: ");
+    read_float(&economy);
 
     Player data = {id, name, playerteam->TeamName, role_name((PlayerRole)role),
                    runs, average, strike_rate, wickets, economy};
@@ -459,8 +479,12 @@ void display_Top_k(){
         return;
     if(!read_role(&role))
         return;
-    if(!read_int("Enter number of players: ", 1, 100000, &k))
+    printf("Enter number of players: ");
+    read_integer(&k);
+    if(k < 1){
+        printf("Number of players must be at least 1.\n");
         return;
+    }
 
     Player_Record *node = *get_role_head(playerteam, role);
     if(node == NULL){
@@ -577,13 +601,8 @@ int main(void){
        "  6. Exit\n"
        "======================================================================\n");
 
-        if(!read_int("  Enter your choice: ", 1, 6, &choice)){
-            if(feof(stdin)){
-                freeAll();
-                return 0;
-            }
-            continue;
-        }
+        printf("  Enter your choice: ");
+        read_integer(&choice);
 
         switch (choice){
                 case 1:
@@ -604,6 +623,9 @@ int main(void){
                 case 6:
                     freeAll();
                     exit(0);
+                default:
+                    printf("Enter correct Number(1-6)\n");
+                    break;
         }
     }
 }
